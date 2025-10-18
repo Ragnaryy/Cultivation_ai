@@ -8,7 +8,7 @@ import java.util.Timer;
 import java.util.TimerTask;
 
 public class MainActivity extends Activity {
-	
+
     private GameWorld gameWorld;
     private GameView gameView;
     private TextView statsText, worldLog, worldInfo;
@@ -22,16 +22,13 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Устанавливаем landscape ориентацию
         setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-
         setContentView(R.layout.main);
 
         initViews();
         loadGameWorld();
         startGameLoop();
 
-        // Первое обновление интерфейса
         updateUI();
     }
 
@@ -46,59 +43,56 @@ public class MainActivity extends Activity {
         gatherBtn = (Button) findViewById(R.id.gatherBtn);
         meditateBtn = (Button) findViewById(R.id.meditateBtn);
 
-        // Создаем GameView
         gameView = new GameView(this);
         FrameLayout gameContainer = (FrameLayout) findViewById(R.id.gameContainer);
         gameContainer.addView(gameView);
 
-        // Назначаем обработчики
         setButtonListeners();
     }
 
     private void setButtonListeners() {
         toggleAIbtn.setOnClickListener(new View.OnClickListener() {
-				public void onClick(View v) {
-					toggleAI();
-					// Эффект нажатия
-					v.startAnimation(android.view.animation.AnimationUtils.loadAnimation(MainActivity.this, android.R.anim.fade_in));
-				}
-			});
+                public void onClick(View v) {
+                    toggleAI();
+                    v.startAnimation(android.view.animation.AnimationUtils.loadAnimation(MainActivity.this, android.R.anim.fade_in));
+                }
+            });
 
         cultivateBtn.setOnClickListener(new View.OnClickListener() {
-				public void onClick(View v) {
-					if (gameWorld.playerCultivate()) {
-						showEffect("🌀", "Ци циркулирует!");
-					}
-					updateUI();
-				}
-			});
+                public void onClick(View v) {
+                    if (gameWorld.playerCultivate()) {
+                        showEffect("🌀", "Ци циркулирует!");
+                    }
+                    updateUI();
+                }
+            });
 
         attackBtn.setOnClickListener(new View.OnClickListener() {
-				public void onClick(View v) {
-					if (gameWorld.playerAttack()) {
-						showEffect("⚡", "Выпущена небесная кара!");
-					}
-					updateUI();
-				}
-			});
+                public void onClick(View v) {
+                    if (gameWorld.playerAttack()) {
+                        showEffect("⚡", "Выпущена небесная кара!");
+                    }
+                    updateUI();
+                }
+            });
 
         gatherBtn.setOnClickListener(new View.OnClickListener() {
-				public void onClick(View v) {
-					if (gameWorld.playerGather()) {
-						showEffect("🌿", "Собрана энергия дао!");
-					}
-					updateUI();
-				}
-			});
+                public void onClick(View v) {
+                    if (gameWorld.playerGather()) {
+                        showEffect("🌿", "Собрана энергия дао!");
+                    }
+                    updateUI();
+                }
+            });
 
         meditateBtn.setOnClickListener(new View.OnClickListener() {
-				public void onClick(View v) {
-					if (gameWorld.playerMeditate()) {
-						showEffect("💭", "Познание небесного пути!");
-					}
-					updateUI();
-				}
-			});
+                public void onClick(View v) {
+                    if (gameWorld.playerMeditate()) {
+                        showEffect("💭", "Познание небесного пути!");
+                    }
+                    updateUI();
+                }
+            });
     }
 
     private void loadGameWorld() {
@@ -116,32 +110,26 @@ public class MainActivity extends Activity {
     private void startGameLoop() {
         gameTimer = new Timer();
         gameTimer.scheduleAtFixedRate(new TimerTask() {
-				public void run() {
-					runOnUiThread(new Runnable() {
-							public void run() {
-								// Обновляем мир
-								gameWorld.update();
+                public void run() {
+                    runOnUiThread(new Runnable() {
+                            public void run() {
+                                gameWorld.update();
 
-								// Авто-действия ИИ
-								if (autoMode) {
-									gameWorld.aiAction();
-								}
+                                if (autoMode) {
+                                    gameWorld.aiAction();
+                                }
 
-								// Авто-сохранение каждые 30 секунд
-								if (System.currentTimeMillis() - lastSaveTime > 30000) {
-									gameWorld.saveGame();
-									lastSaveTime = System.currentTimeMillis();
-								}
+                                if (System.currentTimeMillis() - lastSaveTime > 30000) {
+                                    gameWorld.saveGame();
+                                    lastSaveTime = System.currentTimeMillis();
+                                }
 
-								// Обновляем интерфейс
-								updateUI();
-
-								// Перерисовываем игру
-								gameView.invalidate();
-							}
-						});
-				}
-			}, 1000, 1500); // Более плавный цикл - 1.5 секунды
+                                updateUI();
+                                gameView.invalidate();
+                            }
+                        });
+                }
+            }, 1000, 1500);
     }
 
     private void toggleAI() {
@@ -152,47 +140,51 @@ public class MainActivity extends Activity {
     }
 
     private void showEffect(String symbol, String message) {
-        gameWorld.addLog(symbol + " " + message);
-
-        // Вибро-отклик если доступно
-        try {
-            android.os.Vibrator vibrator = (android.os.Vibrator) getSystemService(VIBRATOR_SERVICE);
-            if (vibrator != null) {
-                vibrator.vibrate(50);
-            }
-        } catch (Exception e) {
-            // Игнорируем если вибрация недоступна
-        }
-    }
+		gameWorld.addLog(symbol + " " + message);
+	}
 
     private void updateUI() {
         if (gameWorld == null) return;
 
         Player player = gameWorld.getPlayer();
 
-        // Обновляем статистику
+        // Форматируем время игры
+        long totalSeconds = gameWorld.getTotalPlayTime();
+        long hours = totalSeconds / 3600;
+        long minutes = (totalSeconds % 3600) / 60;
+        long seconds = totalSeconds % 60;
+        String playTime = String.format("%02d:%02d:%02d", hours, minutes, seconds);
+
         String stats = "👤 " + player.name + 
-			"\n⚡ Уровень: " + player.level + 
-			"\n🌟 Стадия: " + String.format("%.1f", player.cultivationStage) +
-			"\n\n❤️ Здоровье: " + player.health + "/" + player.maxHealth +
-			"\n🌀 Ци: " + player.qi + "/" + player.maxQi +
-			"\n🎯 Сила: " + player.power +
-			"\n\n📚 Опыт: " + player.experience + 
-			"\n♻️ Перерождений: " + player.deathCount +
-			"\n\n🏆 Общий ранг: " + player.getTotalRank() +
-			"\n💫 Титул: " + player.getRankTitle();
+            "\n⚡ Уровень: " + player.level + 
+            "\n🌟 Стадия: " + String.format("%.1f", player.cultivationStage) +
+            "\n💫 Титул: " + player.getRankTitle() +
+            "\n\n❤️ Здоровье: " + player.health + "/" + player.maxHealth +
+            "\n🌀 Ци: " + player.qi + "/" + player.maxQi +
+            "\n🎯 Сила: " + player.power +
+            "\n\n📚 Опыт: " + player.experience + 
+            "\n📊 Множитель опыта: " + String.format("%.2fx", player.getExperienceMultiplier()) +
+            "\n\n⏱️ Время игры: " + playTime +
+            "\n♻️ Перерождений: " + player.deathCount +
+            "\n\n🏆 Общий ранг: " + player.getTotalRank() +
+            "\n💪 Физ. ранг: " + player.physicalRank +
+            "\n🧠 Дух. ранг: " + player.spiritualRank +
+            "\n⚔️ Боев. ранг: " + player.combatRank;
 
         statsText.setText(stats);
-
-        // Обновляем лог
         worldLog.setText(gameWorld.getLog());
 
-        // Обновляем информацию о мире
         String worldStats = "Эра: " + gameWorld.getDay() + 
-			"\nЦикл: " + gameWorld.getCycle() +
-			"\n\nМонстров: " + gameWorld.getAliveMonsters() +
-			"\nРесурсов: " + gameWorld.getResourcesCount() +
-			"\n\nПозиция: " + player.x + "," + player.y;
+            "\nЦикл: " + gameWorld.getCycle() +
+            "\n\nМонстров: " + gameWorld.getAliveMonsters() +
+            "\nРесурсов: " + gameWorld.getResourcesCount() +
+            "\n\n📊 Статистика:" +
+            "\nСобрано ресурсов: " + gameWorld.getResourcesCollected() +
+            "\nПобеждено монстров: " + gameWorld.getMonstersDefeated() +
+            "\nСеансов культивации: " + gameWorld.getCultivationSessions() +
+            "\nСеансов медитации: " + gameWorld.getMeditationSessions() +
+            "\nПрорывов: " + gameWorld.getBreakthroughs() +
+            "\n\nПозиция: " + player.position.x + "," + player.position.y;
         worldInfo.setText(worldStats);
     }
 

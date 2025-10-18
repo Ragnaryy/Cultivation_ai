@@ -6,18 +6,24 @@ import java.util.*;
 
 public class GameWorld {
     private static final String TAG = "GameWorld";
-    private static final String SAVE_KEY = "cultivation_save";
 
     private Context context;
-    public Player player;
-    public List<Monster> monsters;
-    public List<Resource> resources;
+    private Player player;
+    private List<Monster> monsters;
+    private List<Resource> resources;
     private List<String> log;
     private Random random;
+    private WorldGenerator worldGenerator;
+    private AIController aiController;
+
     private int day;
     private int cycle;
     private int worldWidth = 1000;
     private int worldHeight = 600;
+
+    // Новые поля для отслеживания времени
+    private long gameStartTime;
+    private long lastUpdateTime;
 
     public GameWorld(Context context) {
         this.context = context;
@@ -25,23 +31,25 @@ public class GameWorld {
         this.log = new ArrayList<String>();
         this.monsters = new ArrayList<Monster>();
         this.resources = new ArrayList<Resource>();
+        this.worldGenerator = new WorldGenerator(worldWidth, worldHeight);
+
+        this.gameStartTime = System.currentTimeMillis();
+        this.lastUpdateTime = gameStartTime;
 
         loadGame();
 
         if (player == null) {
             initializeNewGame();
         }
+
+        this.aiController = new AIController(this);
     }
 
     private void initializeNewGame() {
         this.day = 1;
         this.cycle = 1;
 
-        // Создаем игрока
         this.player = new Player("Небесный Избранник");
-        player.x = worldWidth / 2;
-        player.y = worldHeight / 2;
-
         generateWorld();
 
         addLog("🌍 Мир создан! День " + day);
@@ -49,255 +57,114 @@ public class GameWorld {
     }
 
     private void generateWorld() {
-        monsters.clear();
-        resources.clear();
+        // Увеличиваем сложность в зависимости от прогресса игрока
+        int monsterCount = 12 + (cycle * 2) + (player.getTotalRank() / 50);
+        int resourceCount = 20 + (player.getTotalRank() / 30);
 
-        // Создаем монстров
-        String[] monsterTypes = {"Огненный Дракон", "Ледяной Феникс", "Громовой Тигр", "Земляная Черепаха"};
-        for (int i = 0; i < 12; i++) {
-            int x = 100 + random.nextInt(worldWidth - 200);
-            int y = 100 + random.nextInt(worldHeight - 200);
-            int level = 1 + random.nextInt(cycle * 2);
-            monsters.add(new Monster(monsterTypes[random.nextInt(monsterTypes.length)], level, x, y));
-        }
-
-        // Создаем ресурсы
-        String[] resourceTypes = {"Небесная Роса", "Корень Жизни", "Ядро Дракона", "Слеза Феникса"};
-        for (int i = 0; i < 20; i++) {
-            int x = 50 + random.nextInt(worldWidth - 100);
-            int y = 50 + random.nextInt(worldHeight - 100);
-            int quality = 1 + random.nextInt(3);
-            resources.add(new Resource(resourceTypes[random.nextInt(resourceTypes.length)], quality, x, y));
-        }
+        monsters = worldGenerator.generateMonsters(Math.min(monsterCount, 50), cycle);
+        resources = worldGenerator.generateResources(Math.min(resourceCount, 100));
 
         addLog("🐉 Появились монстры: " + monsters.size());
         addLog("🌿 Появились ресурсы: " + resources.size());
     }
 
-    public int getDay() {
-        return day;
-    }
-
-    public int getCycle() {
-        return cycle;
-    }
-
-    public int getAliveMonsters() {
-        int count = 0;
-        for (Monster monster : monsters) {
-            if (monster.health > 0) count++;
-        }
-        return count;
-    }
-
-    public int getResourcesCount() {
-        return resources.size();
-    }
-
     public void update() {
+        long currentTime = System.currentTimeMillis();
+        long deltaTime = (currentTime - lastUpdateTime) / 1000; // в секундах
+        lastUpdateTime = currentTime;
+
+        // Обновляем общее время игры игрока
+        player.addPlayTime(deltaTime);
+
         day++;
 
-        // Новый цикл каждые 30 дней
-        if (day % 30 == 0) {
+        // Циклы теперь зависят от прогресса игрока
+        int cyclesPerEra = Math.max(20, 30 - (player.getTotalRank() / 100));
+        if (day % cyclesPerEra == 0) {
             cycle++;
             addLog("🌅 Начинается новый цикл! (" + cycle + ")");
             generateWorld();
         }
 
-        // Плавное восстановление
-        player.health = Math.min(player.maxHealth, player.health + 2);
-        player.qi = Math.min(player.maxQi, player.qi + 3);
+        player.regenerate();
 
-        // Регенерация если нужно
-        if (getAliveMonsters() < 6) {
+        // Динамическое появление монстров и ресурсов в зависимости от прогресса
+        int minMonsters = 6 + (player.getTotalRank() / 40);
+        if (getAliveMonsters() < minMonsters) {
             spawnNewMonsters();
         }
-        if (resources.size() < 10) {
+
+        int minResources = 10 + (player.getTotalRank() / 30);
+        if (resources.size() < minResources) {
             spawnNewResources();
         }
 
-        // Живое движение монстров
         moveMonsters();
     }
 
     private void spawnNewMonsters() {
-        String[] monsterTypes = {"Огненный Дракон", "Ледяной Феникс", "Громовой Тигр", "Земляная Черепаха"};
-        int toSpawn = 3 + random.nextInt(4);
-
-        for (int i = 0; i < toSpawn; i++) {
-            int x = 100 + random.nextInt(worldWidth - 200);
-            int y = 100 + random.nextInt(worldHeight - 200);
-            int level = 1 + random.nextInt(cycle * 2);
-            monsters.add(new Monster(monsterTypes[random.nextInt(monsterTypes.length)], level, x, y));
-        }
+        int count = 3 + random.nextInt(4) + (player.getTotalRank() / 60);
+        List<Monster> newMonsters = worldGenerator.generateMonsters(count, cycle);
+        monsters.addAll(newMonsters);
         addLog("🐉 В мир пришли новые духи");
     }
 
     private void spawnNewResources() {
-        String[] resourceTypes = {"Небесная Роса", "Корень Жизни", "Ядро Дракона", "Слеза Феникса"};
-        int toSpawn = 5 + random.nextInt(6);
-
-        for (int i = 0; i < toSpawn; i++) {
-            int x = 50 + random.nextInt(worldWidth - 100);
-            int y = 50 + random.nextInt(worldHeight - 100);
-            int quality = 1 + random.nextInt(3);
-            resources.add(new Resource(resourceTypes[random.nextInt(resourceTypes.length)], quality, x, y));
-        }
+        int count = 5 + random.nextInt(6) + (player.getTotalRank() / 40);
+        List<Resource> newResources = worldGenerator.generateResources(count);
+        resources.addAll(newResources);
     }
 
     private void moveMonsters() {
         for (Monster monster : monsters) {
-            if (monster.health > 0) {
-                // Плавное движение к игроку если близко
-                double distance = getDistance(player.x, player.y, monster.x, monster.y);
+            if (monster.isAlive()) {
+                double distance = player.position.distanceTo(monster.position);
+                // Скорость монстров увеличивается с прогрессом игрока
+                int speed = 8 + (player.getTotalRank() / 100);
                 if (distance < 250) {
-                    // Движение к игроку
-                    int dx = player.x - monster.x;
-                    int dy = player.y - monster.y;
-                    double length = Math.sqrt(dx * dx + dy * dy);
-                    if (length > 0) {
-                        monster.x += (int)(dx / length * 8);
-                        monster.y += (int)(dy / length * 8);
-                    }
+                    monster.position.moveTowards(player.position, speed);
                 } else {
-                    // Случайное блуждание
-                    monster.x += random.nextInt(13) - 6;
-                    monster.y += random.nextInt(13) - 6;
+                    monster.position.x += random.nextInt(13) - 6;
+                    monster.position.y += random.nextInt(13) - 6;
                 }
-
-                // Ограничение границ
-                monster.x = Math.max(30, Math.min(worldWidth - 30, monster.x));
-                monster.y = Math.max(30, Math.min(worldHeight - 30, monster.y));
+                monster.position.clamp(30, 30, worldWidth - 30, worldHeight - 30);
             }
         }
     }
 
     public void aiAction() {
-        // Умный ИИ с плавными переходами
-
-        // 1. Критическое состояние - бегство и лечение
-        if (player.health < 25) {
-            escapeAndHeal();
-            return;
-        }
-
-        // 2. Поиск лечения если здоровье среднее
-        if (player.health < 60 && findHealingResource() != null) {
-            Resource healing = findHealingResource();
-            // Движение к ресурсу
-            int dx = healing.x - player.x;
-            int dy = healing.y - player.y;
-            double length = Math.sqrt(dx * dx + dy * dy);
-            if (length > 0) {
-                player.x += (int)(dx / length * 12);
-                player.y += (int)(dy / length * 12);
-            }
-            if (getDistance(player.x, player.y, healing.x, healing.y) < 40) {
-                playerGather();
-            }
-            return;
-        }
-
-        // 3. Атака слабых монстров
-        Monster weakTarget = findWeakMonster();
-        if (weakTarget != null && player.health > 50) {
-            // Движение к монстру
-            int dx = weakTarget.x - player.x;
-            int dy = weakTarget.y - player.y;
-            double length = Math.sqrt(dx * dx + dy * dy);
-            if (length > 0) {
-                player.x += (int)(dx / length * 10);
-                player.y += (int)(dy / length * 10);
-            }
-            if (getDistance(player.x, player.y, weakTarget.x, weakTarget.y) < 50) {
-                playerAttack();
-            }
-            return;
-        }
-
-        // 4. Культивация при безопасности
-        if (player.qi >= 25 && isSafe() && random.nextDouble() < 0.7) {
-            playerCultivate();
-            return;
-        }
-
-        // 5. Сбор ценных ресурсов
-        Resource valuableResource = findValuableResource();
-        if (valuableResource != null) {
-            // Движение к ресурсу
-            int dx = valuableResource.x - player.x;
-            int dy = valuableResource.y - player.y;
-            double length = Math.sqrt(dx * dx + dy * dy);
-            if (length > 0) {
-                player.x += (int)(dx / length * 8);
-                player.y += (int)(dy / length * 8);
-            }
-            if (getDistance(player.x, player.y, valuableResource.x, valuableResource.y) < 40) {
-                playerGather();
-            }
-            return;
-        }
-
-        // 6. Исследование неизвестных областей
-        exploreNewAreas();
-    }
-
-    private void escapeAndHeal() {
-        Monster nearest = findNearestMonster();
-        if (nearest != null) {
-            // Движение от монстра
-            int dx = player.x - nearest.x;
-            int dy = player.y - nearest.y;
-            double distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance > 0) {
-                player.x += (int)(dx / distance * 25);
-                player.y += (int)(dy / distance * 25);
-            }
-        }
-
-        // Использование ресурсов для лечения
-        if (findHealingResource() != null) {
-            playerGather();
-        } else {
-            addLog("💨 Бегство от опасности");
-        }
-    }
-
-    private void exploreNewAreas() {
-        // Движение в случайном направлении
-        player.x += random.nextInt(41) - 20;
-        player.y += random.nextInt(41) - 20;
-
-        // Ограничение границ мира
-        player.x = Math.max(20, Math.min(worldWidth - 20, player.x));
-        player.y = Math.max(20, Math.min(worldHeight - 20, player.y));
-
-        addLog("🗺️ Исследование неизвестных земель");
-        player.experience += 2;
+        aiController.performAction();
     }
 
     public boolean playerCultivate() {
-        if (player.qi >= 20) {
+        if (player.canCultivate()) {
             player.qi -= 20;
-            player.experience += 12;
-            player.cultivationStage += 0.15;
 
-            // Шанс прорыва растет со стадией
-            double breakthroughChance = 0.08 + (player.cultivationStage * 0.02);
+            // Опыт с учетом множителя
+            double expMultiplier = player.getExperienceMultiplier();
+            int baseExp = 12;
+            int actualExp = (int)(baseExp * expMultiplier);
+
+            player.experience += actualExp;
+            player.cultivationStage += 0.15;
+            player.incrementCultivationSessions();
+
+            // Шанс прорыва увеличивается с рангом
+            double breakthroughChance = 0.08 + (player.cultivationStage * 0.02) + (player.getTotalRank() * 0.0001);
 
             if (random.nextDouble() < breakthroughChance) {
-                // Большой прорыв
                 player.level++;
-                player.maxHealth += 30;
-                player.maxQi += 20;
-                player.power += 10;
+                player.maxHealth += 30 + (player.getTotalRank() / 20);
+                player.maxQi += 20 + (player.getTotalRank() / 25);
+                player.power += 10 + (player.getTotalRank() / 30);
                 player.health = player.maxHealth;
                 player.qi = player.maxQi;
+                player.incrementBreakthroughs();
 
                 addLog("🌟 ПРОРЫВ В НОВЫЙ УРОВЕНЬ! (" + player.level + ")");
                 return true;
             } else {
-                addLog("🌀 Ци циркулирует по меридианам");
+                addLog("🌀 Ци циркулирует по меридианам (+" + actualExp + " опыта)");
                 return true;
             }
         }
@@ -307,30 +174,48 @@ public class GameWorld {
 
     public boolean playerAttack() {
         Monster target = findNearestMonster();
-        if (target != null && target.health > 0) {
-            double distance = getDistance(player.x, player.y, target.x, target.y);
+        if (target != null && target.isAlive()) {
+            double distance = player.position.distanceTo(target.position);
 
             if (distance < 60) {
-                int damage = player.power + random.nextInt(16);
-                target.health -= damage;
+                // Урон увеличивается с рангом
+                int baseDamage = player.power + random.nextInt(16);
+                int rankBonus = player.getTotalRank() / 20;
+                int damage = baseDamage + rankBonus;
 
-                addLog("⚡ Выпущена небесная кара! (-" + damage + " HP)");
+                target.takeDamage(damage);
 
-                if (target.health <= 0) {
-                    int exp = target.level * 20;
-                    player.experience += exp;
-                    addLog("🎯 " + target.type + " рассеян! +" + exp + " очков просветления");
+                addLog("⚡ Атакован [" + target.getRarityName() + "] " + target.type);
+                addLog("   🎯 " + target.getRankTitle() + " Ур." + target.level);
+
+                if (!target.isAlive()) {
+                    // Опыт за монстра с учетом множителя и редкости
+                    double expMultiplier = player.getExperienceMultiplier();
+                    int actualExp = target.getExpReward();
+
+                    player.experience += actualExp;
+                    player.incrementMonstersDefeated();
+
+                    addLog("🎯 Победа! +" + actualExp + " очков просветления");
+
+                    // Дроп ресурсов с монстров
+                    if (target.shouldDropResource()) {
+                        Resource drop = createMonsterDrop(target);
+                        resources.add(drop);
+                        addLog("💎 Выпало: " + drop.type + " " + drop.getQualityStars());
+                    }
+
                     checkLevelUp();
                     return true;
                 }
 
-                // Ответная атака
-                if (target.health > 0 && random.nextDouble() < 0.5) {
-                    int monsterDamage = target.power + random.nextInt(8);
-                    player.health -= monsterDamage;
+                if (target.isAlive() && random.nextDouble() < 0.5) {
+                    // Урон монстра тоже увеличивается с прогрессом
+                    int monsterDamage = target.power + random.nextInt(8) + (cycle * 2);
+                    player.takeDamage(monsterDamage);
                     addLog("💥 " + target.type + " контратакует! (-" + monsterDamage + " HP)");
 
-                    if (player.health <= 0) {
+                    if (!player.isAlive()) {
                         playerDie();
                     }
                 }
@@ -341,35 +226,33 @@ public class GameWorld {
         return false;
     }
 
+    private Resource createMonsterDrop(Monster monster) {
+        int quality = Math.min(4, monster.rarity + 1);
+        int x = monster.position.x + random.nextInt(50) - 25;
+        int y = monster.position.y + random.nextInt(50) - 25;
+
+        String[] dropTypes = {"Ядро Дракона", "Слеза Феникса", "Сердце Зверя", "Когть Титана", "Чешуя Дракона"};
+        String type = dropTypes[random.nextInt(dropTypes.length)];
+
+        return new Resource(type, quality, x, y, "monster");
+    }
+
     public boolean playerGather() {
         Resource target = findNearestResource();
         if (target != null) {
-            double distance = getDistance(player.x, player.y, target.x, target.y);
+            double distance = player.position.distanceTo(target.position);
 
             if (distance < 50) {
                 resources.remove(target);
+                applyResourceEffect(target);
 
-                // Эффекты в зависимости от качества
-                int bonus = target.quality * 10;
+                // Опыт с учетом множителя
+                double expMultiplier = player.getExperienceMultiplier();
+                int baseExp = 15;
+                int actualExp = (int)(baseExp * expMultiplier);
 
-                if (target.type.equals("Небесная Роса")) {
-                    player.health = Math.min(player.maxHealth, player.health + 20 + bonus);
-                    addLog("💧 Поглощена небесная роса (+" + (20 + bonus) + " HP)");
-                } else if (target.type.equals("Корень Жизни")) {
-                    player.qi = Math.min(player.maxQi, player.qi + 25 + bonus);
-                    addLog("🌱 Поглощен корень жизни (+" + (25 + bonus) + " ци)");
-                } else if (target.type.equals("Ядро Дракона")) {
-                    player.power += 2 + target.quality;
-                    player.experience += 50 + bonus;
-                    addLog("🐉 Получено ядро дракона (+" + (2 + target.quality) + " силы)");
-                } else if (target.type.equals("Слеза Феникса")) {
-                    player.maxHealth += 5;
-                    player.maxQi += 5;
-                    player.experience += 40 + bonus;
-                    addLog("🔥 Получена слеза феникса (+5 к пределам)");
-                }
-
-                player.experience += 15;
+                player.experience += actualExp;
+                player.incrementResourcesCollected();
                 checkLevelUp();
                 return true;
             }
@@ -378,22 +261,67 @@ public class GameWorld {
         return false;
     }
 
-    public boolean playerMeditate() {
-        player.qi = Math.min(player.maxQi, player.qi + 30);
-        player.health = Math.min(player.maxHealth, player.health + 15);
-        player.experience += 8;
+    private void applyResourceEffect(Resource resource) {
+        // Эффект ресурсов усиливается с рангом игрока
+        int rankBonus = player.getTotalRank() / 25;
+        int baseBonus = resource.getBonusValue();
+        int totalBonus = baseBonus + rankBonus;
 
-        addLog("💭 Глубокое познание небесного пути");
+        if ("Небесная Роса".equals(resource.type)) {
+            int healAmount = 20 + totalBonus;
+            player.heal(healAmount);
+            addLog("💧 Поглощена небесная роса (+" + healAmount + " HP)");
+        } else if ("Корень Жизни".equals(resource.type)) {
+            int qiAmount = 25 + totalBonus;
+            player.qi = Math.min(player.maxQi, player.qi + qiAmount);
+            addLog("🌱 Поглощен корень жизни (+" + qiAmount + " ци)");
+        } else if ("Ядро Дракона".equals(resource.type) || "Сердце Зверя".equals(resource.type)) {
+            int powerBonus = 2 + resource.quality + (player.getTotalRank() / 50);
+            player.power += powerBonus;
+            player.experience += 50 + totalBonus;
+            addLog("🐉 Получено " + resource.type + " (+" + powerBonus + " силы)");
+        } else if ("Слеза Феникса".equals(resource.type) || "Когть Титана".equals(resource.type)) {
+            int statBonus = 5 + (player.getTotalRank() / 40);
+            player.maxHealth += statBonus;
+            player.maxQi += statBonus;
+            player.experience += 40 + totalBonus;
+            addLog("🔥 Получен " + resource.type + " (+" + statBonus + " к пределам)");
+        } else {
+            // Для остальных ресурсов
+            player.experience += 30 + totalBonus;
+            addLog("✨ Получен " + resource.type + " (+" + (30 + totalBonus) + " опыта)");
+        }
+    }
+
+    public boolean playerMeditate() {
+        // Эффективность медитации увеличивается с рангом
+        int rankBonus = player.getTotalRank() / 30;
+        player.qi = Math.min(player.maxQi, player.qi + 30 + rankBonus);
+        player.heal(15 + rankBonus);
+
+        // Опыт с учетом множителя
+        double expMultiplier = player.getExperienceMultiplier();
+        int baseExp = 8;
+        int actualExp = (int)(baseExp * expMultiplier);
+
+        player.experience += actualExp;
+        player.incrementMeditationSessions();
+
+        addLog("💭 Глубокое познание небесного пути (+" + actualExp + " опыта)");
         checkLevelUp();
         return true;
     }
 
     private void checkLevelUp() {
-        int requiredExp = player.level * 120;
+        // Требуемый опыт увеличивается, но компенсируется множителем
+        int baseRequiredExp = player.level * 120;
+        double reduction = Math.min(0.5, player.getTotalRank() * 0.001);
+        int requiredExp = (int)(baseRequiredExp * (1.0 - reduction));
+
         if (player.experience >= requiredExp) {
             player.level++;
-            player.maxHealth += 25;
-            player.power += 8;
+            player.maxHealth += 25 + (player.getTotalRank() / 25);
+            player.power += 8 + (player.getTotalRank() / 30);
             player.health = player.maxHealth;
             addLog("⬆️ Достигнут уровень " + player.level + " просветления!");
         }
@@ -401,29 +329,30 @@ public class GameWorld {
 
     private void playerDie() {
         player.deathCount++;
+        // Штраф уменьшается с рангом
+        double rankReduction = Math.min(0.15, player.getTotalRank() * 0.0003);
+        double basePenalty = 0.25;
+        double actualPenalty = Math.max(0.05, basePenalty - rankReduction);
 
-        // Прогрессивный штраф
-        double penalty = Math.max(0.1, 0.25 - (player.deathCount * 0.02));
-        player.experience = (int)(player.experience * (1 - penalty));
+        player.experience = (int)(player.experience * (1 - actualPenalty));
 
-        // Воскрешение в случайном месте
-        player.x = 200 + random.nextInt(worldWidth - 400);
-        player.y = 200 + random.nextInt(worldHeight - 400);
+        player.position.x = 200 + random.nextInt(worldWidth - 400);
+        player.position.y = 200 + random.nextInt(worldHeight - 400);
         player.health = player.maxHealth / 3;
         player.qi = player.maxQi / 3;
 
-        addLog("💀 Тело разрушено! Потеряно " + (int)(penalty * 100) + "% просветления");
+        addLog("💀 Тело разрушено! Потеряно " + (int)(actualPenalty * 100) + "% просветления");
         addLog("♻️ Воссоздание формы... Перерождений: " + player.deathCount);
     }
 
-    // Вспомогательные методы поиска
-    private Monster findNearestMonster() {
+    // Методы поиска для AI
+    public Monster findNearestMonster() {
         Monster nearest = null;
         double minDistance = Double.MAX_VALUE;
 
         for (Monster monster : monsters) {
-            if (monster.health > 0) {
-                double distance = getDistance(player.x, player.y, monster.x, monster.y);
+            if (monster.isAlive()) {
+                double distance = player.position.distanceTo(monster.position);
                 if (distance < minDistance) {
                     minDistance = distance;
                     nearest = monster;
@@ -433,12 +362,12 @@ public class GameWorld {
         return nearest;
     }
 
-    private Resource findNearestResource() {
+    public Resource findNearestResource() {
         Resource nearest = null;
         double minDistance = Double.MAX_VALUE;
 
         for (Resource resource : resources) {
-            double distance = getDistance(player.x, player.y, resource.x, resource.y);
+            double distance = player.position.distanceTo(resource.position);
             if (distance < minDistance) {
                 minDistance = distance;
                 nearest = resource;
@@ -447,49 +376,74 @@ public class GameWorld {
         return nearest;
     }
 
-    private Monster findWeakMonster() {
+    public Monster findWeakMonster() {
         for (Monster monster : monsters) {
-            if (monster.health > 0 && monster.level <= player.level + 2) {
-                double distance = getDistance(player.x, player.y, monster.x, monster.y);
+            if (monster.isAlive() && monster.level <= player.level + 2 + (player.getTotalRank() / 100)) {
+                double distance = player.position.distanceTo(monster.position);
                 if (distance < 200) return monster;
             }
         }
         return null;
     }
 
-    private Resource findHealingResource() {
+    public Resource findHealingResource() {
         for (Resource resource : resources) {
-            if (resource.type.equals("Небесная Роса") || resource.type.equals("Корень Жизни")) {
-                double distance = getDistance(player.x, player.y, resource.x, resource.y);
+            if (resource.isHealingType()) {
+                double distance = player.position.distanceTo(resource.position);
                 if (distance < 300) return resource;
             }
         }
         return null;
     }
 
-    private Resource findValuableResource() {
+    public Resource findValuableResource() {
+        // Порог качества увеличивается с рангом
+        int qualityThreshold = 2 + (player.getTotalRank() / 200);
         for (Resource resource : resources) {
-            if (resource.quality >= 2) {
-                double distance = getDistance(player.x, player.y, resource.x, resource.y);
+            if (resource.quality >= qualityThreshold) {
+                double distance = player.position.distanceTo(resource.position);
                 if (distance < 250) return resource;
             }
         }
         return findNearestResource();
     }
 
-    private boolean isSafe() {
+    public boolean isSafe() {
+        // Безопасная дистанция увеличивается с рангом
+        int safeDistance = 150 + (player.getTotalRank() / 10);
         for (Monster monster : monsters) {
-            if (monster.health > 0) {
-                double distance = getDistance(player.x, player.y, monster.x, monster.y);
-                if (distance < 150) return false;
+            if (monster.isAlive()) {
+                double distance = player.position.distanceTo(monster.position);
+                if (distance < safeDistance) return false;
             }
         }
         return true;
     }
 
-    private double getDistance(int x1, int y1, int x2, int y2) {
-        return Math.sqrt(Math.pow(x1 - x2, 2) + Math.pow(y1 - y2, 2));
+    // Геттеры
+    public int getDay() { return day; }
+    public int getCycle() { return cycle; }
+    public int getAliveMonsters() { 
+        int count = 0;
+        for (Monster monster : monsters) {
+            if (monster.isAlive()) count++;
+        }
+        return count;
     }
+    public int getResourcesCount() { return resources.size(); }
+    public Player getPlayer() { return player; }
+    public int getWorldWidth() { return worldWidth; }
+    public int getWorldHeight() { return worldHeight; }
+    public List<Monster> getMonsters() { return monsters; }
+    public List<Resource> getResources() { return resources; }
+
+    // Новые геттеры для статистики
+    public long getTotalPlayTime() { return player.totalPlayTime; }
+    public int getResourcesCollected() { return player.resourcesCollected; }
+    public int getMonstersDefeated() { return player.monstersDefeated; }
+    public int getCultivationSessions() { return player.cultivationSessions; }
+    public int getMeditationSessions() { return player.meditationSessions; }
+    public int getBreakthroughs() { return player.breakthroughs; }
 
     public void addLog(String message) {
         log.add(0, message);
@@ -512,7 +466,6 @@ public class GameWorld {
             SharedPreferences prefs = context.getSharedPreferences("CultivationData", Context.MODE_PRIVATE);
             SharedPreferences.Editor editor = prefs.edit();
 
-            // Простое сохранение основных данных
             editor.putInt("day", day);
             editor.putInt("cycle", cycle);
             editor.putInt("player_level", player.level);
@@ -524,11 +477,21 @@ public class GameWorld {
             editor.putInt("player_experience", player.experience);
             editor.putFloat("player_cultivationStage", (float)player.cultivationStage);
             editor.putInt("player_deathCount", player.deathCount);
-            editor.putInt("player_x", player.x);
-            editor.putInt("player_y", player.y);
+            editor.putInt("player_x", player.position.x);
+            editor.putInt("player_y", player.position.y);
+
+            // Сохранение новых полей
+            editor.putLong("player_totalPlayTime", player.totalPlayTime);
+            editor.putInt("player_resourcesCollected", player.resourcesCollected);
+            editor.putInt("player_monstersDefeated", player.monstersDefeated);
+            editor.putInt("player_cultivationSessions", player.cultivationSessions);
+            editor.putInt("player_meditationSessions", player.meditationSessions);
+            editor.putInt("player_breakthroughs", player.breakthroughs);
+            editor.putInt("player_physicalRank", player.physicalRank);
+            editor.putInt("player_spiritualRank", player.spiritualRank);
+            editor.putInt("player_combatRank", player.combatRank);
 
             editor.apply();
-
             Log.d(TAG, "Игра сохранена");
         } catch (Exception e) {
             Log.e(TAG, "Ошибка сохранения: " + e.getMessage());
@@ -553,8 +516,19 @@ public class GameWorld {
                 player.experience = prefs.getInt("player_experience", 0);
                 player.cultivationStage = prefs.getFloat("player_cultivationStage", 1.0f);
                 player.deathCount = prefs.getInt("player_deathCount", 0);
-                player.x = prefs.getInt("player_x", 500);
-                player.y = prefs.getInt("player_y", 300);
+                player.position.x = prefs.getInt("player_x", 500);
+                player.position.y = prefs.getInt("player_y", 300);
+
+                // Загрузка новых полей
+                player.totalPlayTime = prefs.getLong("player_totalPlayTime", 0);
+                player.resourcesCollected = prefs.getInt("player_resourcesCollected", 0);
+                player.monstersDefeated = prefs.getInt("player_monstersDefeated", 0);
+                player.cultivationSessions = prefs.getInt("player_cultivationSessions", 0);
+                player.meditationSessions = prefs.getInt("player_meditationSessions", 0);
+                player.breakthroughs = prefs.getInt("player_breakthroughs", 0);
+                player.physicalRank = prefs.getInt("player_physicalRank", 10);
+                player.spiritualRank = prefs.getInt("player_spiritualRank", 10);
+                player.combatRank = prefs.getInt("player_combatRank", 10);
 
                 generateWorld();
                 addLog("♻️ Загрузка предыдущего просветления...");
@@ -569,9 +543,4 @@ public class GameWorld {
         SharedPreferences prefs = context.getSharedPreferences("CultivationData", Context.MODE_PRIVATE);
         return !prefs.contains("player_level");
     }
-
-    // Геттеры
-    public Player getPlayer() { return player; }
-    public int getWorldWidth() { return worldWidth; }
-    public int getWorldHeight() { return worldHeight; }
 }
